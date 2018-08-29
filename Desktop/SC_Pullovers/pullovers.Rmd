@@ -1,0 +1,116 @@
+---
+title: "North Charleston Police Pullovers"
+author: "Kathleen Reese"
+date: "8/23/2018"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, warning=F, echo=FALSE, include=FALSE}
+
+# Loading libraries for viridis and scales
+library(viridis)
+library(scales)
+
+# Loading tidyverse and necessary packages
+library(tidyverse)
+scpullovers <- read_csv("SC-clean.csv")
+scpullovers <- filter(scpullovers, lat!=0, lon!=0)
+```
+
+First, let's look at the summary of the file **scpullovers**. We are wanting to look at the total number of stops made in each area. 
+
+```{r view_dataframe, include=TRUE, echo=FALSE}
+
+# Viewing scpullovers
+glimpse(scpullovers)
+```
+
+Note, this is the data frame that was used after filtering out all the missing data from the latitude and longitude columns with the formula below.
+
+# Tigris and API
+
+**As a disclaimer:** Unfortunately, because of missing longitude and latitude data, nearly half of the data will be missing in the end of this study. However, it is crucial for the longitude and latitude to be present for our data to work. In the future, it is urged for future stops or past stops to be geolocated in hopes to improve future studies.
+
+```{r charleston, include=FALSE, echo=TRUE}
+
+# Loading packages for API, sf and tigris. If you haven't already, enter your API code by typing census_api_key("ENTER YOUR KEY HERE").
+library(censusapi)
+library(sf)
+library(tigris)
+
+# Then, we will need to use our census API key to use tracts to get FIPS codes.
+options(tigris_class = "sf")
+charleston <- tracts(state="SC", county="Charleston", cb=T)
+```
+
+```{r charleston_towns, include=FALSE, echo=FALSE}
+
+# Using census API to gather FIPS codes for county subdivisions for usage for map
+charleston_towns <- county_subdivisions(state="SC", county="Charleston", cb=T)
+```
+
+```{r northcharleston_city, include=TRUE, echo=FALSE}
+
+# Filter for showing North Charleston City out of Charleston subdivision
+northcharleston_city <- filter(charleston_towns, NAME=="North Charleston")
+```
+
+# Shapefiles
+
+Originally, a shapefile was created for charleston, which was done with our census API key. We need a spatial anlaysis to transform our coordinates into a correct shapefile to further combine them to the charleston shapefile.
+
+```{r spatial_shapefile, include=FALSE, echo=FALSE}
+
+# Loading library rgdal
+library(rgdal)
+
+# Spatial analysis
+scpullovers_spatial <- scpullovers %>%
+  st_as_sf(coords=c("lon", "lat"),
+           crs = "+proj=longlat") %>%
+  st_transform(crs=st_crs(charleston))
+```
+
+After that has loaded, we need to combine the shapefiles of charleston and scpullovers_spatial to provide us with a GEOID.
+
+```{r points_in, include=FALSE, echo=TRUE}
+
+# Combining shapefiles to get GEOID to map out on plot
+points_in <- st_join(charleston, scpullovers_spatial, left=T)
+```
+
+Finally, we will create a new dataframe to summarize the totals of pullovers done by each grouped GEOID. We can then start our mapping process!
+
+```{r by_tract, include=TRUE, echo=TRUE}
+
+# Summary of total in each area by grouping by GEOID
+by_tract <- points_in %>%
+  group_by(GEOID) %>%
+  summarise(total=n())
+
+# View by_tract
+head(by_tract)
+```
+
+## ggplot of North Charleston Police Pullovers
+
+We see that North Charleston has several dense areas where police has pulled individuals over. The highlighted area we see outlined in black is North Charleston.
+
+```{r plot, include=TRUE, echo=FALSE}
+
+# ggplot of by_tract 
+ggplot(by_tract) +
+  geom_sf(aes(fill = total), color=NA) +
+  geom_sf(data=northcharleston_city, fill=NA, color="black") +
+  coord_sf(datum=NA) +
+  labs(title = "Total traffic stops by North Charleston police",
+       subtitle = "From 2005 to 2016",
+       caption = "Source: Stanford Open Policing Data",
+       fill = "Total stops") +
+  scale_fill_viridis(option="magma", direction=-1) +
+  NULL
+```
+
